@@ -1,0 +1,209 @@
+# CLAUDE.md — 世界执行我 · 奥迪斯 PV 开发铁律
+
+> 本项目是一部用 Remotion（React + TypeScript）自动渲染成 MP4 的音乐视觉 PV。
+> 主题：《Warframe 星际战甲》中枢奥迪斯（Cephalon Ordis）与其前世骨骸野兽奥丹·卡里斯（Ordan Karris）的人格撕裂。
+> BGM：Mili《world.execute(me);》— 130 BPM / 212 秒 / 60fps / 12720 帧 / 1920×1080。
+>
+> **下面四条是不可违背的铁律。任何一次改动违反其中任意一条，都视为错误代码，必须回退重写。**
+
+---
+
+## 铁律一：纯函数时间轴
+
+所有动画只能依赖 `useCurrentFrame()`。
+
+**绝对禁止：**
+
+- `useState` / `useReducer` 驱动的动画
+- `useEffect` / `useLayoutEffect` 里改动画值
+- `setTimeout` / `setInterval` / `requestAnimationFrame`
+- CSS `transition` / `@keyframes` / `animation`
+- 依赖 `Date.now()`、`performance.now()`、鼠标位置、滚动位置
+
+**唯一正确的写法：**
+
+```tsx
+const frame = useCurrentFrame();
+const scale = 1 + getBeatPulse(frame) * 0.08;
+```
+
+如果组件需要动画值，就把 `frame` 当参数传下去，让组件本身保持纯函数：
+
+```tsx
+<CephalonCube frame={frame} rageLevel={rage} />
+```
+
+> 原因：Remotion 渲染时会把 12720 帧拆给多个 Chrome 进程并行计算。
+> 任何一个依赖"真实时间"或"组件内部状态"的值，都会让不同进程算出不同画面，成片就会闪烁、抖动、错位。
+
+---
+
+## 铁律二：确定性伪随机
+
+**严禁 `Math.random()`。** 一次都不行。
+
+所有乱码、抖动、粒子、噪点、随机偏移，必须使用 `src/data/math.ts` 里的：
+
+```ts
+import { seededRandom, seededRange, seededPick, seededSign } from "./data/math";
+
+const offset = seededSign(frame * 3.7 + 11) * 6; // -6 ~ 6，且每帧可复现
+const glyph = seededPick(GLITCH_GLYPHS, frame + 42);
+```
+
+要求：
+
+- `seed` 必须由 `frame`（以及元素下标）推导，例如 `seededRandom(frame * 13.7 + index * 7.1)`。
+- 同一个 seed 在任何机器、任何进程、任何次渲染中都必须得到同一个值。
+- 需要"降采样刷新"时，用 `Math.floor(frame / 3)` 把 seed 量化，避免每帧都变导致糊成噪点。
+
+**错误 → 正确 对照：**
+
+| ❌ 错误 | ✅ 正确 |
+| --- | --- |
+| `Math.random() * 10` | `seededRandom(frame * 1.7 + i) * 10` |
+| `Math.random() > 0.5` | `seededRandom(frame * 2.3 + i) > 0.5` |
+| `Date.now() % 100` | `frame % 100` |
+
+---
+
+## 铁律三：高密度 TUI 与几何视觉
+
+**禁止出现大面积空白。**
+
+每一帧画面都必须被信息填满。右侧 58% 的终端里必须始终存在：
+
+- ASCII 字符框（`┌ ┐ └ ┘ │ ─`）包裹的分区
+- 十六进制内存流（地址 + 16 字节 + ASCII 解码列）
+- 波形图 / 示波器
+- ASCII 频谱（`▁▂▃▄▅▆▇█`）
+- 几何线框（旋转立方体、八面体、坐标环）
+- 滚动日志（带时间戳）
+- 角标：帧号、时间码、BPM、seed、状态位
+
+左侧通讯窗也不允许空：立方体外围必须有 HUD 括号、旋转虚线环、坐标读数、状态条。
+
+排版原则：等宽字体、极小字号（9–14px）、大写字距（`letterSpacing: 1.5–3`）、低透明度描边色、逐层叠加。
+
+---
+
+## 铁律四：三色叙事系统
+
+| 颜色 | 色值 | 语义 |
+| --- | --- | --- |
+| 中枢冰蓝 | `#00E5FF` | 日常奥迪斯：冷静、秩序、系统自检、温柔 |
+| 耀金 | `#D4AF37` | 奥罗金帝国 / 巴拉斯：仪式、审判、傲慢的恩赐 |
+| 赤毒血红 | `#FF0033` | 奥丹·卡里斯：暴走、血腥潜意识、被处决的野兽 |
+
+规则：
+
+- 颜色必须从 `src/data/palette.ts` 的 `PALETTE` 取，**不允许在组件里手写十六进制色值**（除非是纯黑/纯白遮罩）。
+- 冰蓝 → 血红 的切换必须由 `rageLevel` 经 `mixHex()` 连续插值，不允许硬切。
+- 耀金只在"奥罗金 / 巴拉斯"相关分镜出现，不要拿它做装饰色，否则三色系统失效。
+
+```tsx
+const accent = mixHex(PALETTE.ordis.core, PALETTE.karris.core, rageLevel);
+```
+
+---
+
+## 铁律五：官方考据，禁止自造
+
+画面里出现的**每一句台词、每一个专有名词**，只能来自：
+
+- `src/data/script.ts` 的 `ORDIS_LINES`（《Warframe》官方语音原文 + 官方中文对照）
+- `src/data/script.ts` 的 `LYRICS`（《world.execute(me);》原曲歌词）
+- `src/data/warframe.ts`（星图节点 / 派系 / 轨道飞行器模块 / 中枢碎片独白 / 清除指令）
+
+**禁止**：自己编造听起来像 Warframe 的系统名（如 `BLADE_RITE`、`PAIN THRESHOLD`、`SEC-09`）、
+编造奥迪斯台词、把歌词和台词混在同一个框里。
+左侧 `ORBITER TRANSMISSION` 只放官方台词，右侧 `AUDIO STREAM // LYRICS` 只放原曲歌词，两边绝不重复。
+
+---
+
+## 工程结构
+
+```
+wf dc/
+├── package.json
+├── tsconfig.json
+├── remotion.config.ts        # 渲染配置（入口、编码、浏览器内核探测）
+├── CLAUDE.md                 # 本文件
+├── .cursorrules              # 与 CLAUDE.md 同源的规则副本
+└── src/
+    ├── index.ts              # registerRoot 入口
+    ├── Root.tsx              # Composition 注册表
+    ├── MainVideo.tsx         # Shot Director：五个分镜的分发器
+    ├── data/
+    │   ├── math.ts           # getBeatPulse / seededRandom / corruptText
+    │   ├── palette.ts        # 三色叙事系统
+    │   ├── script.ts         # SHOT_CUT / 官方台词 ORDIS_LINES / 歌词 LYRICS
+    │   ├── warframe.ts       # 星图节点 / 模块 / 中枢碎片 / 清除指令（官方数据源）
+    │   └── typography.ts     # MONO / SANS 字体栈
+    ├── shots/
+    │   ├── ShotBoot.tsx      # Shot 1 冷启动特写 + 网格展开
+    │   ├── ShotCruise.tsx    # Shot 2 始源星系星图 + 模块角标 + 歌词条
+    │   ├── ShotImpact.tsx    # Shot 3 反色冲击帧
+    │   ├── ShotBeast.tsx     # Shot 4 记忆闪回（大字报 / 莲 / 骨栓 / 弹窗）
+    │   ├── ShotPurge.tsx     # Shot 5 PRECEPT_OVERRIDE + 裂纹
+    │   └── OrdisColumn.tsx   # 左 42% ORBITER TRANSMISSION（Shot 2/4/5 共用）
+    └── kit/
+        ├── CephalonCube.tsx  # 八面体（8 面沿法线炸开 + 混沌核心）
+        ├── OriginSystemMap.tsx # 始源星系导航星图
+        ├── LotusSigil.tsx    # 莲 × 七人审判之环 × 骨栓
+        ├── WarningPopups.tsx # 中枢碎片弹窗
+        ├── PurgePanel.tsx    # 镇压面板
+        ├── LyricStrip.tsx    # 歌词条（只放原曲歌词）
+        ├── SliceGlitch.tsx   # 屏幕切片撕裂（clip-path + screen 混色）
+        ├── AsciiBox.tsx      # ASCII 字符框
+        └── CRTOverlay.tsx    # 扫描线 / 噪点 / 暗角
+
+public/
+└── bgm.mp3                   # 《world.execute(me);》原曲，由 <Audio> 挂载
+```
+
+## 分镜切换表（改分镜只动 `src/data/script.ts` 的 `BEAT`）
+
+时间点严格对齐《world.execute(me);》前 15 秒真实音频（60fps）。
+每一拍必须有独立构图，**不允许连续两拍用同一套布局**。
+
+| 帧区间 | 时间 | Beat | 歌词锚点 | 画面 |
+| --- | --- | --- | --- | --- |
+| 0–105 | 0.00–1.75 | 1 | Switch on the power line | 耀金电流横扫劈屏，电压 0→100,000V |
+| 105–219 | 1.75–3.65 | 2 | PROTECTION（168 重音） | RAW_SOUL 尖刺核心 → 反色闪白 → 四块装甲板砸合 → 封印钢印 |
+| 219–330 | 3.65–5.50 | 3 | Lay down your pieces | 8 块中枢碎片菱形逐个发牌 |
+| 330–480 | 5.50–8.00 | 4 | OBJECT CREATION（390） | 碎片坍缩 → 编译视口 + 实例化代码 |
+| 480–660 | 8.00–11.0 | 5 | Fill in my data parameters | 12 条参数充能 → 999% 溢出 → 血色暴走 + 巨型动能字 |
+| 660–780 | 11.0–13.0 | 6 | INITIALIZATION | 六道金门对应六个音节，逐层刷回青蓝 |
+| 780–900 | 13.0–15.0 | 7 | SIMULATION（850） | 金门滑开，星图 3D 展开，奥迪斯归位 |
+
+## 时间轴约定
+
+- 全片：`12720` 帧，`60fps`，`1920×1080`
+- 一拍：`60 / 130 * 60 ≈ 27.6923` 帧（`FRAMES_PER_BEAT`）
+- 一小节：`≈ 110.77` 帧（`FRAMES_PER_BAR`）
+- 分镜一律写成 `const SCENE = { start: 480, end: 660 }` 这种**帧号常量**，不要写秒数，不要写魔法数字散落在 JSX 里。
+
+## 命名与代码风格
+
+- 组件文件用 PascalCase，工具文件用 camelCase。
+- 所有视觉组件接收 `frame: number` 作为第一个 prop，自己**不调用** `useCurrentFrame`（除了最外层场景组件）。这样它们可被任意时间轴复用、可被单帧快照测试。
+- 中文注释写"为什么"，英文标识符写"是什么"。
+- 不引入任何 UI 框架（Tailwind / styled-components），全部用内联 style，保证渲染环境一致。
+
+## 常用命令
+
+```bash
+npm run dev          # 打开 Remotion Studio 预览（浏览器）
+npm run typecheck    # tsc --noEmit 检查类型
+npm run render:test  # 渲染 15 秒测试片
+npm run render       # 渲染全片
+```
+
+## 提交前自检清单
+
+- [ ] 全项目搜索 `Math.random` → 0 结果
+- [ ] 全项目搜索 `useState` / `useEffect` / `setTimeout` / `animation:` → 0 结果
+- [ ] 任意两帧截图对比：同帧号必须像素级一致
+- [ ] 画面没有超过 1/6 面积的纯色空白
+- [ ] 新增颜色都来自 `PALETTE`

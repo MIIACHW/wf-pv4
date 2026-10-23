@@ -1,0 +1,28 @@
+{
+  "name": "world-execute-ordis-pv",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Music PV - Cephalon Ordis / Ordan Karris (Warframe) - Mili: world.execute(me);",
+  "scripts": {
+    "dev": "remotion studio",
+    "studio": "remotion studio",
+    "typecheck": "tsc --noEmit",
+    "render": "remotion render OrdisPV out/ordis-pv.mp4",
+    "render:test": "remotion render OrdisTest out/ordis-test-15s.mp4",
+    "still": "remotion still OrdisTest out/still.png --frame=200",
+    "upgrade": "remotion upgrade"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.537",
+    "lucide-react": "^1.61.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "remotion": "4.0.537"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.7.0"
+  }
+}
