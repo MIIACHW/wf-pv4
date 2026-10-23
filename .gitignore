@@ -1,0 +1,13 @@
+node_modules/
+out/
+build/
+.cache/
+*.log
+.DS_Store
+Thumbs.db
+
+# 版权音乐（《world.execute(me);》原曲，不放入公开仓库）
+public/bgm.mp3
+
+# 本地工作笔记 / 助手记忆
+.workbuddy/
